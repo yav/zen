@@ -1,11 +1,13 @@
 module Main(main) where
 
 import Control.Monad(when,unless)
+import Control.Monad.IO.Class(liftIO)
 import qualified SimpleSMT as SMT
 import SimpleSMT(SExpr)
 import System.Random.TF(newTFGen)
 import System.Random.TF.Gen
 import System.Random.TF.Instances
+import System.Console.Haskeline
 
 import Zen
 import Parser
@@ -137,16 +139,17 @@ printModel = putStrLn . showModel
 
 printState :: State -> IO ()
 printState s =
-  do unless (null (posExamples s))
-       do putStrLn "Valid:"
+  do let heading x = putStrLn ("\27[1m\27[37m" ++ x ++ "\27[0m")
+     unless (null (posExamples s))
+       do heading "Valid:"
           mapM_ printModel (posExamples s)
 
      unless (null (negExamples s))
-       do putStrLn "Invalid:"
+       do heading "Invalid:"
           mapM_ printModel (negExamples s)
 
      unless (null (badGuesses s))
-        do putStrLn "Guesses:"
+        do heading "Guesses:"
            mapM_ (putStrLn . pp) (badGuesses s)
 
      when (solved s)
@@ -471,17 +474,22 @@ main =
     SMT.loadFile s "src/Zen.z3"
     rng <- newTFGen
     let (r,_) = rand rng
-    play =<< tryAddNegExample =<< tryAddPosExample (blankState s r)
+    s0 <- tryAddNegExample =<< tryAddPosExample (blankState s r)
+    runInputT defaultSettings (play s0)
 
-play :: State -> IO ()
+play :: State -> InputT IO ()
 play s =
-  do printState s
+  do liftIO (putStrLn "\27c" >> printState s)
      unless (solved s)
-       do txt <- getLine
-          case parseCommand txt of
-            Left err -> putStrLn err >> play s
-            Right cmd ->
-              play =<<
-              case cmd of
-                Check m -> checkExperiment m s
-                Guess r -> checkGuess r s
+       do txt <- getInputLine "> "
+          case txt of
+            Nothing -> play s
+            Just c ->
+              case parseCommand c of
+                Left err -> liftIO (putStrLn err) >> play s
+                Right cmd ->
+                  play =<<
+                  liftIO
+                  case cmd of
+                    Check m -> checkExperiment m s
+                    Guess r -> checkGuess r s

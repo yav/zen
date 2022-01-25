@@ -19,6 +19,7 @@ executable zen
       containers,
       simple-smt,
       tf-random,
+      haskeline,
       array
     build-tool-depends: happy:happy
     ghc-options: -Wall
