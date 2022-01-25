@@ -37,6 +37,7 @@ import Zen
   NUM           { I $$          }
   '_'           { T "_"         }
   'guess'       { T "guess"     }
+  'giveup'      { T "giveup"    }
 
 %%
 
@@ -114,6 +115,7 @@ object                               :: { Thing }
 
 command                              :: { Command }
   : 'guess' rule                        { Guess $2 }
+  | 'giveup'                            { Giveup }
   | model                               { Check $1 }
 
 {

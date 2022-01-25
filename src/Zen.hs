@@ -61,6 +61,7 @@ type Model  = [ Thing ]
 
 data Command  = Guess Rule
               | Check Model
+              | Giveup
 
 
 

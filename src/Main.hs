@@ -139,7 +139,8 @@ printModel = putStrLn . showModel
 
 printState :: State -> IO ()
 printState s =
-  do let heading x = putStrLn ("\27[1m\27[37m" ++ x ++ "\27[0m")
+  do unless (null (message s)) (putStrLn (message s))
+     let heading x = putStrLn ("\27[1m\27[37m" ++ x ++ "\27[0m")
      unless (null (posExamples s))
        do heading "Valid:"
           mapM_ printModel (posExamples s)
@@ -204,7 +205,7 @@ instance PP a => PP (Constraint a) where
       Is p a ->
         case p of
           Yes -> pp a
-          No  -> "not-" ++ pp a
+          No  -> "non-" ++ pp a
       Unconstrained -> ""
 
 instance (PPEmpty a, PP a, PP b) => PP (ObjectProps a b) where
@@ -250,9 +251,9 @@ instance PP Rule where
                ExistBefore {}   -> "no " ++ pp pr
                Compare op t1 t2 -> pp t1 ++ ops ++ pp t2
                  where ops = case op of
-                               Eq  -> "/="
-                               Lt  -> ">="
-                               Leq -> ">"
+                               Eq  ->  "/= "
+                               Lt  ->  ">= "
+                               Leq ->  "> "
 
 
 --------------------------------------------------------------------------------
@@ -415,6 +416,7 @@ data State = State
   , posExamples :: [Model]
   , negExamples :: [Model]
   , badGuesses  :: [Rule]
+  , message     :: String
   , solved      :: Bool
   }
 
@@ -425,6 +427,7 @@ blankState s r = State
   , posExamples = []
   , negExamples = []
   , badGuesses  = []
+  , message     = ""
   , solved      = False
   }
 
@@ -478,18 +481,20 @@ main =
     runInputT defaultSettings (play s0)
 
 play :: State -> InputT IO ()
-play s =
-  do liftIO (putStrLn "\27c" >> printState s)
+play s0 =
+  do liftIO (putStrLn "\27c" >> printState s0)
+     let s = s0 { message = "" }
      unless (solved s)
        do txt <- getInputLine "> "
           case txt of
             Nothing -> play s
             Just c ->
               case parseCommand c of
-                Left err -> liftIO (putStrLn err) >> play s
+                Left err -> play s { message = err }
                 Right cmd ->
                   play =<<
                   liftIO
                   case cmd of
                     Check m -> checkExperiment m s
                     Guess r -> checkGuess r s
+                    Giveup  -> pure s { solved = True }
