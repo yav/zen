@@ -1,6 +1,7 @@
 module Main(main) where
 
-import Control.Monad(when,unless)
+import Data.List(groupBy)
+import Control.Monad(when,unless,forM_)
 import Control.Monad.IO.Class(liftIO)
 import qualified SimpleSMT as SMT
 import SimpleSMT(SExpr)
@@ -139,7 +140,9 @@ printModel = putStrLn . showModel
 
 printState :: State -> IO ()
 printState s =
-  do unless (null (message s)) (putStrLn (message s))
+  do putStrLn ("Guess points: " ++ show (points s))
+
+     unless (null (message s)) (putStrLn (message s))
      let heading x = putStrLn ("\27[1m\27[37m" ++ x ++ "\27[0m")
      unless (null (posExamples s))
        do heading "Valid:"
@@ -151,7 +154,11 @@ printState s =
 
      unless (null (badGuesses s))
         do heading "Guesses:"
-           mapM_ (putStrLn . pp) (badGuesses s)
+           forM_ (badGuesses s) \(r,p,m) ->
+             let w = case p of
+                       Yes -> "accepts "
+                       No  -> "rejects "
+             in putStrLn (pp r ++ " (" ++ w ++ showModel m ++ ")")
 
      when (solved s)
         do putStrLn "Solved!  The rule is:"
@@ -363,7 +370,7 @@ assertModel s p m = assertPol s p modelE
 
 getModel :: SMT.Solver -> IO Model
 getModel s = imp <$> SMT.getConsts s [ "place_" ++ show i | i <- [ 1..5 :: Int]]
-  where imp = map (getThing . snd)
+  where imp = normalizeModel . map (getThing . snd)
 
 -- | Check and get model if any
 getModelMaybe :: SMT.Solver -> IO (Maybe Model)
@@ -415,8 +422,9 @@ data State = State
   , theRule     :: Rule
   , posExamples :: [Model]
   , negExamples :: [Model]
-  , badGuesses  :: [Rule]
+  , badGuesses  :: [(Rule,Polarity,Model)]
   , message     :: String
+  , points      :: Int
   , solved      :: Bool
   }
 
@@ -428,8 +436,27 @@ blankState s r = State
   , negExamples = []
   , badGuesses  = []
   , message     = ""
+  , points      = 0
   , solved      = False
   }
+
+-- Remove adjacnet empty spaces, and also empty spaces at the beginning
+normalizeModel :: Model -> Model
+normalizeModel =
+  pad . dropWhile isEmpty . concatMap oneEmpty . groupBy bothEmpty
+  where
+  pad xs = take 5 (xs ++ repeat Empty)
+
+  isEmpty e = case e of
+                Empty -> True
+                _     -> False
+
+  oneEmpty es =
+    case es of
+      Empty : _ -> [Empty]
+      _         -> es
+
+  bothEmpty a b = isEmpty a && isEmpty b
 
 
 tryAddPosExample :: State -> IO State
@@ -450,24 +477,33 @@ tryAddNegExample s =
             Nothing -> s
             Just m  -> s { negExamples = m : negExamples s }
 
-checkExperiment :: Model -> State -> IO State
-checkExperiment m s =
+checkExperiment :: Model -> Polarity -> State -> IO State
+checkExperiment m expect s
+  | m `elem` posExamples s || m `elem` negExamples s =
+    pure s { message = "This is an aleady known example" }
+  | otherwise =
   SMT.inNewScope (solver s)
   do assertRule (solver s) (theRule s)
      yes <- checkModel (solver s) m
-     pure if yes then s { posExamples = m : posExamples s }
-                 else s { negExamples = m : negExamples s }
+     let s1 = if yes && expect == Yes || not yes && expect == No
+                then s { points = points s + 1 } else s
+     pure if yes then s1 { posExamples = m : posExamples s1 }
+                 else s1 { negExamples = m : negExamples s1 }
 
 checkGuess :: Rule -> State -> IO State
-checkGuess r s =
+checkGuess r s
+  | points s < 1 = pure s { message = "No guess points, do some experiments." }
+  | otherwise =
   do res <- checkRules (solver s) (theRule s) r
      pure case res of
             Equivalent -> s { solved = True }
-            LeftYesRightNo m -> s { badGuesses = r : badGuesses s
+            LeftYesRightNo m -> s { badGuesses = (r,No,m) : badGuesses s
                                   , posExamples = m : posExamples s
+                                  , points = points s - 1
                                   }
-            LeftNoRightYes m -> s { badGuesses = r : badGuesses s
+            LeftNoRightYes m -> s { badGuesses = (r,Yes,m) : badGuesses s
                                   , negExamples = m : negExamples s
+                                  , points = points s - 1
                                   }
 
 main :: IO ()
@@ -495,6 +531,6 @@ play s0 =
                   play =<<
                   liftIO
                   case cmd of
-                    Check m -> checkExperiment m s
-                    Guess r -> checkGuess r s
+                    Check m p -> checkExperiment (normalizeModel m) p s
+                    Guess r   -> checkGuess r s
                     Giveup  -> pure s { solved = True }

@@ -10,7 +10,7 @@ data ObjectProps color shape = Object { color :: color, shape :: shape }
   deriving (Show, Eq, Ord)
 
 data Polarity = Yes | No
-  deriving Show
+  deriving (Eq,Show)
 
 data Constraint a = Is Polarity a
                   | Unconstrained
@@ -60,7 +60,7 @@ data Thing = Empty | Full Object
 type Model  = [ Thing ]
 
 data Command  = Guess Rule
-              | Check Model
+              | Check Model Polarity
               | Giveup
 
 

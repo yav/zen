@@ -38,6 +38,8 @@ import Zen
   '_'           { T "_"         }
   'guess'       { T "guess"     }
   'giveup'      { T "giveup"    }
+  'valid'       { T "valid"     }
+  'invalid'     { T "invalid"   }
 
 %%
 
@@ -116,7 +118,8 @@ object                               :: { Thing }
 command                              :: { Command }
   : 'guess' rule                        { Guess $2 }
   | 'giveup'                            { Giveup }
-  | model                               { Check $1 }
+  | 'valid' model                       { Check $2 Yes }
+  | 'invalid' model                     { Check $2 No }
 
 {
 
