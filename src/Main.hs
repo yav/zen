@@ -1,7 +1,7 @@
 module Main(main) where
 
 import Data.List(groupBy)
-import Control.Monad(when,unless,forM_)
+import Control.Monad(unless,forM_)
 import Control.Monad.IO.Class(liftIO)
 import qualified SimpleSMT as SMT
 import SimpleSMT(SExpr)
@@ -9,8 +9,12 @@ import System.Random.TF(newTFGen)
 import System.Random.TF.Gen
 import System.Random.TF.Instances
 import System.Console.Haskeline
+import System.IO
+import System.Console.ANSI hiding (Color(..))
+import qualified System.Console.ANSI as ANSI
 
 import Zen
+import ModelUI
 import Parser
 
 class ToSMT a where
@@ -113,56 +117,91 @@ getThing x =
 --------------------------------------------------------------------------------
 -- Models
 
-showModel :: Model -> String
-showModel = concatMap showThing
 
-showThing :: Thing -> String
-showThing t =
+printModel :: Model -> IO ()
+printModel = mapM_ printThing
+
+printThing :: Thing -> IO ()
+printThing t =
   case t of
-    Empty   -> "_ "
-    Full o  -> showObject o
+    Empty  -> putStr "_ "
+    Full o -> printObject o
 
-showObject :: Object -> String
-showObject (Object c s) = "\27[" ++ col ++ "m" ++ sym ++ "\27[0m"
+printObject :: Object -> IO ()
+printObject (Object c s) =
+  do setSGR [ SetColor Foreground Dull col ]
+     putStr sym
+     setSGR [ SetDefaultColor Foreground ]
   where
   col = case c of
-          Red   -> "31"
-          Green -> "32"
-          Blue  -> "34"
+          Red   -> ANSI.Red
+          Green -> ANSI.Green
+          Blue  -> ANSI.Blue
 
   sym = case s of
           Circle   -> "● "
           Triangle -> "▲ "
           Square   -> "■ "
 
-printModel :: Model -> IO ()
-printModel = putStrLn . showModel
 
 printState :: State -> IO ()
 printState s =
-  do putStrLn ("Guess points: " ++ show (points s))
+  do clearScreen
+     putStrLn ("Guess points: " ++ show (points s))
 
      unless (null (message s)) (putStrLn (message s))
-     let heading x = putStrLn ("\27[1m\27[37m" ++ x ++ "\27[0m")
+     let heading x = do setSGR [ SetColor Foreground Vivid ANSI.White ]
+                        putStrLn x
+                        setSGR [ SetDefaultColor Foreground ]
      unless (null (posExamples s))
        do heading "Valid:"
-          mapM_ printModel (posExamples s)
+          forM_ (posExamples s) \m -> printModel m >> putStrLn ""
 
      unless (null (negExamples s))
        do heading "Invalid:"
-          mapM_ printModel (negExamples s)
+          forM_ (negExamples s) \m -> printModel m >> putStrLn ""
 
      unless (null (badGuesses s))
         do heading "Guesses:"
            forM_ (badGuesses s) \(r,p,m) ->
-             let w = case p of
-                       Yes -> "accepts "
-                       No  -> "rejects "
-             in putStrLn (pp r ++ " (" ++ w ++ showModel m ++ ")")
+             do putStr (pp r ++ " (")
+                putStr (case p of
+                          Yes -> "accepts "
+                          No  -> "rejects ")
+                printModel m
+                putStrLn ")"
 
-     when (solved s)
-        do putStrLn "Solved!  The rule is:"
-           putStrLn (pp (theRule s))
+     case status s of
+       Ready ->
+         do putStrLn "[v] enter valid model"
+            putStrLn "[i] enter invalid model"
+            unless (points s < 1) (putStrLn "[g] guess rule")
+            putStrLn "[q] quit and show rule"
+
+       Solved ->
+         do putStrLn "Solved!  The rule is:"
+            putStrLn (pp (theRule s))
+
+       EnteringModel pol uis ->
+         do putStr case pol of
+                     Yes -> "Valid: "
+                     No  -> "Invalid: "
+            printModel (reverse (model uis))
+            unless (len uis == 5)
+               do putStr " | "
+                  printObject (cur uis)
+                  putStrLn ""
+                  putStrLn "[r] red"
+                  putStrLn "[g] green"
+                  putStrLn "[b] blue"
+                  putStrLn "[c] circle"
+                  putStrLn "[t] triangle"
+                  putStrLn "[s] square"
+                  putStrLn "[,] next object"
+                  putStrLn "[ ] empty"
+                  putStrLn "[Backspace] undo"
+                  putStrLn "[Enter] submit model"
+
 
 --------------------------------------------------------------------------------
 
@@ -416,6 +455,7 @@ checkRules s r1 r2 =
            assertRule s b
            getModelMaybe s
 
+data Status = Solved | Ready | EnteringModel Polarity ModelUI
 
 data State = State
   { solver      :: SMT.Solver
@@ -425,7 +465,7 @@ data State = State
   , badGuesses  :: [(Rule,Polarity,Model)]
   , message     :: String
   , points      :: Int
-  , solved      :: Bool
+  , status      :: Status
   }
 
 blankState :: SMT.Solver -> Rule -> State
@@ -437,7 +477,7 @@ blankState s r = State
   , badGuesses  = []
   , message     = ""
   , points      = 0
-  , solved      = False
+  , status      = Ready
   }
 
 -- Remove adjacnet empty spaces, and also empty spaces at the beginning
@@ -496,7 +536,7 @@ checkGuess r s
   | otherwise =
   do res <- checkRules (solver s) (theRule s) r
      pure case res of
-            Equivalent -> s { solved = True }
+            Equivalent -> s { status = Solved }
             LeftYesRightNo m -> s { badGuesses = (r,No,m) : badGuesses s
                                   , posExamples = m : posExamples s
                                   , points = points s - 1
@@ -514,23 +554,53 @@ main =
     rng <- newTFGen
     let (r,_) = rand rng
     s0 <- tryAddNegExample =<< tryAddPosExample (blankState s r)
+    buttonMode
     runInputT defaultSettings (play s0)
+
+buttonMode :: IO ()
+buttonMode =
+  do hSetBuffering stdin NoBuffering
+     hSetEcho stdin False
+     hideCursor
+
+typingMode :: IO ()
+typingMode =
+  do hSetBuffering stdin LineBuffering
+     hSetEcho stdin True
+     showCursor
 
 play :: State -> InputT IO ()
 play s0 =
-  do liftIO (putStrLn "\27c" >> printState s0)
+  do liftIO (printState s0)
      let s = s0 { message = "" }
-     unless (solved s)
-       do txt <- getInputLine "> "
-          case txt of
-            Nothing -> play s
-            Just c ->
-              case parseCommand c of
-                Left err -> play s { message = err }
-                Right cmd ->
-                  play =<<
-                  liftIO
-                  case cmd of
-                    Check m p -> checkExperiment (normalizeModel m) p s
-                    Guess r   -> checkGuess r s
-                    Giveup  -> pure s { solved = True }
+     case status s of
+       Solved -> pure ()
+
+       EnteringModel pol uis ->
+         do c <- liftIO getChar
+            play =<<
+              case nextModelUI c uis of
+                Left uis1 -> pure s { status = EnteringModel pol uis1 }
+                Right m   -> liftIO
+                                (checkExperiment (normalizeModel m) pol
+                                                  s { status = Ready })
+       Ready ->
+         do c <- liftIO getChar
+            play =<<
+              case c of
+                'i' -> pure s { status = EnteringModel No initModelUI }
+                'v' -> pure s { status = EnteringModel Yes initModelUI }
+                'q' -> pure s { status = Solved }
+                'g'
+                  | points s < 1 -> pure s { message = "No guess points" }
+                  | otherwise ->
+                  do liftIO typingMode
+                     txt <- getInputLine "rule: "
+                     liftIO buttonMode
+                     case txt of
+                       Nothing -> pure s
+                       Just l ->
+                         case parseRule l of
+                           Left err -> pure s { message = err }
+                           Right r -> liftIO (checkGuess r s)
+                _ -> pure s

@@ -59,10 +59,6 @@ data Thing = Empty | Full Object
 
 type Model  = [ Thing ]
 
-data Command  = Guess Rule
-              | Check Model Polarity
-              | Giveup
-
 
 
 --------------------------------------------------------------------------------

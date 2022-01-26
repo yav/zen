@@ -1,11 +1,10 @@
 {
-module Parser (parseRule, parseCommand) where
+module Parser (parseRule) where
 
 import Zen
 }
 
 %name rule      rule
-%name command   command
 %tokentype      { Token }
 %monad          { Either String }
 
@@ -104,22 +103,6 @@ term                                 :: { Term }
 countTerm                            :: { Term }
   : 'count' prop                        { Count $2 }
 
-model                                :: { Model }
-  : object                              { $1 : replicate 4 Empty }
-  | object object                       { [$1,$2] ++ replicate 3 Empty }
-  | object object object                { [$1,$2,$3] ++ replicate 2 Empty }
-  | object object object object         { [$1,$2,$3,$4,Empty] }
-  | object object object object object  { [$1,$2,$3,$4,$5] }
-
-object                               :: { Thing }
-  : '_'                                 { Empty }
-  | color shape                         { Full (Object $1 $2) }
-
-command                              :: { Command }
-  : 'guess' rule                        { Guess $2 }
-  | 'giveup'                            { Giveup }
-  | 'valid' model                       { Check $2 Yes }
-  | 'invalid' model                     { Check $2 No }
 
 {
 
@@ -131,9 +114,5 @@ happyError xs =
 
 parseRule :: String -> Either String Rule
 parseRule = rule . lexer
-
-parseCommand :: String -> Either String Command
-parseCommand = command . lexer
-
 
 }
