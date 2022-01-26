@@ -4,10 +4,10 @@ import Zen
 
 data ModelUI =
   ModelUI
-    { cur :: Object
+    { cur   :: Object
     , model :: [ Thing ] -- reversed
-    , len :: Int
-    , prev :: Maybe ModelUI
+    , len   :: Int
+    , prev  :: Maybe ModelUI
     }
 
 initModelUI :: ModelUI
@@ -25,7 +25,7 @@ nextModelUI c s =
     '\DEL' -> case prev s of
                 Nothing -> Right Nothing
                 Just s1 -> Left s1
-    '\n'   -> Right (Just (reverse (model s)))
+    '\n'   -> Right (Just (take 5 (reverse (model s) ++ [Full (cur s)])))
     _ | len s == 5 -> Left s
 
     ' ' -> Left

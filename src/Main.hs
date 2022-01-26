@@ -1,6 +1,6 @@
 module Main(main) where
 
-import Data.List(groupBy)
+import Data.List(groupBy,intercalate)
 import Control.Monad(unless,forM_)
 import Control.Monad.IO.Class(liftIO)
 import qualified SimpleSMT as SMT
@@ -147,12 +147,12 @@ printObject (Object c s) =
 printState :: State -> IO ()
 printState s =
   do clearScreen
-     putStrLn ("Guess points: " ++ show (points s))
+     setCursorPosition 0 0
 
      unless (null (message s)) (putStrLn (message s))
-     let heading x = do setSGR [ SetColor Foreground Vivid ANSI.White ]
-                        putStrLn x
-                        setSGR [ SetDefaultColor Foreground ]
+
+     let heading x = putStrLn (bold x)
+     heading ("Guess points: " ++ show (points s))
      unless (null (posExamples s))
        do heading "Valid:"
           forM_ (posExamples s) \m -> printModel m >> putStrLn ""
@@ -171,12 +171,16 @@ printState s =
                 printModel m
                 putStrLn ")"
 
+     let key x = "[" ++ bold x ++ "]"
+
      case status s of
        Ready ->
-         do putStrLn "[v] enter valid model"
-            putStrLn "[i] enter invalid model"
-            unless (points s < 1) (putStrLn "[g] guess rule")
-            putStrLn "[q] quit and show rule"
+         do putStrLn ""
+            putStrLn $ key "v" ++ " enter valid model"
+            putStrLn $ key "i" ++ " enter invalid model"
+            unless (points s < 1) (putStrLn $ key "g" ++ " guess rule")
+            putStrLn $ key "h" ++ " print rule grammar"
+            putStrLn $ key "q" ++ " quit and show rule"
 
        Solved ->
          do putStrLn "Solved!  The rule is:"
@@ -188,21 +192,45 @@ printState s =
                      No  -> "Invalid: "
             printModel (reverse (model uis))
             unless (len uis == 5)
-               do putStr " [ "
+               do putStr " ["
                   printObject (cur uis)
-                  putStr " ]"
+                  putStr "]"
             putStrLn ""
-            putStrLn "[r] red"
-            putStrLn "[g] green"
-            putStrLn "[b] blue"
-            putStrLn "[c] circle"
-            putStrLn "[t] triangle"
-            putStrLn "[s] square"
-            putStrLn "[,] next object"
-            putStrLn "[ ] empty"
-            putStrLn "[Backspace] undo"
-            putStrLn "[Enter] submit model"
+            putStrLn $ concat [ key "r", " red   ", key "c", " circle   ", key "Space", " empty" ]
+            putStrLn $ concat [ key "g", " green ", key "t", " triangle ", key ","    , "     next position" ]
+            putStrLn $ concat [ key "b", " blue  ", key "s", " square   ", key "Enter", " submit model" ]
+            putStrLn $ concat [ "                       ", key "Back", "  undo" ]
 
+ruleHelp :: String
+ruleHelp = unlines
+  [ "RULE  := " ++ sequ [ opt (term "no"), "PROP" ]
+  , "       | " ++ sequ [ opt (term "no"), "PROP", "REL", "PROP", opt "QUAL" ]
+  , "       | " ++ sequ [ term "count", "PROP", "OP", "TERM" ]
+  , ""
+  , "PROP  := " ++ alts [ term "thing", "COLOR", "SHAPE", sequ [ "COLOR", "SHAPE" ] ]
+  , ""
+  , "COLOR := " ++ opt (term "non-") ++ paren (terms [ "red", "green", "blue" ])
+  , "SHAPE := " ++ opt (term "non-") ++ paren (terms [ "circle", "triangle", "square" ])
+  , ""
+  , "REL   := " ++ terms [ "touches", "before" ]
+  , "OP    := " ++ terms [ "=", "/=", "<", ">", "<=", ">=" ]
+  , ""
+  , "QUAL  := " ++ sequ [ term "of", "CTR", opt (sequ [ term "and", "CTR" ]) ]
+  , "CTR   := " ++ sequ [ paren (terms ["same", "different"]), paren (terms ["shape", "color"]) ]
+  , ""
+  , "TERM  := " ++ alts [ sequ [ term "count", "PROP" ], "NUMBER" ]
+  ]
+  where
+  term  = bold
+  opt x = "[" ++ x ++ "]"
+  alts  = intercalate " | "
+  terms = alts . map term
+  sequ  = unwords
+  paren x = "(" ++ x ++ ")"
+
+bold :: String -> String
+bold x = setSGRCode [ SetConsoleIntensity BoldIntensity ] ++ x ++
+         setSGRCode [ SetConsoleIntensity NormalIntensity ]
 
 --------------------------------------------------------------------------------
 
@@ -604,6 +632,7 @@ play s0 =
                 'i' -> pure s { status = EnteringModel No initModelUI }
                 'v' -> pure s { status = EnteringModel Yes initModelUI }
                 'q' -> pure s { status = Solved }
+                'h' -> pure s { message = ruleHelp }
                 'g'
                   | points s < 1 -> pure s { message = "No guess points" }
                   | otherwise ->
