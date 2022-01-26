@@ -188,19 +188,20 @@ printState s =
                      No  -> "Invalid: "
             printModel (reverse (model uis))
             unless (len uis == 5)
-               do putStr " | "
+               do putStr " [ "
                   printObject (cur uis)
-                  putStrLn ""
-                  putStrLn "[r] red"
-                  putStrLn "[g] green"
-                  putStrLn "[b] blue"
-                  putStrLn "[c] circle"
-                  putStrLn "[t] triangle"
-                  putStrLn "[s] square"
-                  putStrLn "[,] next object"
-                  putStrLn "[ ] empty"
-                  putStrLn "[Backspace] undo"
-                  putStrLn "[Enter] submit model"
+                  putStr " ]"
+            putStrLn ""
+            putStrLn "[r] red"
+            putStrLn "[g] green"
+            putStrLn "[b] blue"
+            putStrLn "[c] circle"
+            putStrLn "[t] triangle"
+            putStrLn "[s] square"
+            putStrLn "[,] next object"
+            putStrLn "[ ] empty"
+            putStrLn "[Backspace] undo"
+            putStrLn "[Enter] submit model"
 
 
 --------------------------------------------------------------------------------
@@ -272,13 +273,21 @@ instance PP PosRule where
   pp r =
     case r of
       Exist p           -> pp p
-      ExistAdjacent p q c -> pp p ++ " touches " ++ pp q ++ " " ++ pp c
-      ExistBefore p q c  -> pp p ++ " before " ++ pp q ++ " " ++ pp c
+      ExistAdjacent p q c -> pp p ++ " touches " ++ pp q ++ " " ++ ppProp2 c
+      ExistBefore p q c  -> pp p ++ " before " ++ pp q ++ " " ++ ppProp2 c
       Compare op t1 t2  -> pp t1 ++ ops ++ pp t2
           where ops = case op of
                         Eq  -> " = "
                         Lt  -> " < "
                         Leq -> " <= "
+
+ppProp2 :: Prop2 -> String
+ppProp2 p =
+  case (color p, shape p) of
+    (Unspecified, Unspecified) -> ""
+    (Unspecified, x)  -> "of " ++ pp x
+    (x,Unspecified)   -> "of " ++ pp x
+    (x,y)             -> "of " ++ pp x ++ " and " ++ pp y
 
 instance PPThing a => PP (Constraint2 a) where
   pp c =
@@ -556,6 +565,7 @@ main =
     s0 <- tryAddNegExample =<< tryAddPosExample (blankState s r)
     buttonMode
     runInputT defaultSettings (play s0)
+    typingMode
 
 buttonMode :: IO ()
 buttonMode =
@@ -581,9 +591,12 @@ play s0 =
             play =<<
               case nextModelUI c uis of
                 Left uis1 -> pure s { status = EnteringModel pol uis1 }
-                Right m   -> liftIO
+                Right mb  ->
+                  case mb of
+                    Just m -> liftIO
                                 (checkExperiment (normalizeModel m) pol
                                                   s { status = Ready })
+                    Nothing -> pure s { status = Ready }
        Ready ->
          do c <- liftIO getChar
             play =<<

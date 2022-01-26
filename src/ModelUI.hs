@@ -7,7 +7,7 @@ data ModelUI =
     { cur :: Object
     , model :: [ Thing ] -- reversed
     , len :: Int
-    , prev :: ModelUI
+    , prev :: Maybe ModelUI
     }
 
 initModelUI :: ModelUI
@@ -16,27 +16,32 @@ initModelUI =
     { cur   = Object Red Circle
     , model = []
     , len   = 0
-    , prev  = initModelUI
+    , prev  = Nothing
     }
 
-nextModelUI :: Char -> ModelUI -> Either ModelUI Model
+nextModelUI :: Char -> ModelUI -> Either ModelUI (Maybe Model)
 nextModelUI c s =
   case c of
-    '\DEL' -> Left (prev s)
-    '\n'   -> Right (reverse (model s))
+    '\DEL' -> case prev s of
+                Nothing -> Right Nothing
+                Just s1 -> Left s1
+    '\n'   -> Right (Just (reverse (model s)))
     _ | len s == 5 -> Left s
 
     ' ' -> Left
            case model s of
              Full _ : _ -> s { model = Empty : model s
                              , len = len s + 1
-                             , prev = s }
+                             , prev = Just s }
              _ -> s
 
-    ',' -> Left s { model = Full (cur s) : model s, len = len s + 1, prev = s }
+    ',' -> Left s { model = Full (cur s) : model s, len = len s + 1
+                  , prev = Just s }
 
-    _ | Just col <- isColor c -> Left s { cur = (cur s) { color = col } }
-      | Just sh  <- isShape c -> Left s { cur = (cur s) { shape = sh  } }
+    _ | Just col <- isColor c -> Left s { cur = (cur s) { color = col }
+                                        , prev = Just s }
+      | Just sh  <- isShape c -> Left s { cur = (cur s) { shape = sh  }
+                                        , prev = Just s }
       | otherwise -> Left s
 
 isColor :: Char -> Maybe Color
