@@ -3,6 +3,7 @@ module Main(main) where
 import Data.List(groupBy,intercalate)
 import Control.Monad(unless,forM_)
 import Control.Monad.IO.Class(liftIO)
+import Control.Exception(finally)
 import qualified SimpleSMT as SMT
 import SimpleSMT(SExpr)
 import System.Random.TF(newTFGen)
@@ -588,6 +589,7 @@ main :: IO ()
 main =
  do opts <- getArgs
     if optShowHelp opts then showHelp else doMain opts
+  `finally` typingMode
 
 doMain :: Options -> IO ()
 doMain opts =
