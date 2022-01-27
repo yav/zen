@@ -126,7 +126,7 @@ printModel = mapM_ printThing
 printThing :: Thing -> IO ()
 printThing t =
   case t of
-    Empty  -> putStr "_ "
+    Empty  -> putStr "⏠ "
     Full o -> printObject o
 
 printObject :: Object -> IO ()
@@ -195,9 +195,10 @@ printState s =
                      No  -> "Invalid: "
             printModel (reverse (model uis))
             unless (len uis == 5)
-               do putStr " ["
-                  printObject (cur uis)
+               do putStr "["
+                  printThing (cur uis)
                   putStr "]"
+                  printModel (replicate (5 - 1 - len uis) Empty)
             putStrLn ""
             putStrLn $ concat [ key "r", " red   ", key "c", " circle   ", key "Space", " empty" ]
             putStrLn $ concat [ key "g", " green ", key "t", " triangle ", key ","    , "     next position" ]

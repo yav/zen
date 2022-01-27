@@ -4,7 +4,7 @@ import Zen
 
 data ModelUI =
   ModelUI
-    { cur   :: Object
+    { cur   :: Thing
     , model :: [ Thing ] -- reversed
     , len   :: Int
     , prev  :: Maybe ModelUI
@@ -13,7 +13,7 @@ data ModelUI =
 initModelUI :: ModelUI
 initModelUI =
   ModelUI
-    { cur   = Object Red Circle
+    { cur   = Empty
     , model = []
     , len   = 0
     , prev  = Nothing
@@ -25,24 +25,32 @@ nextModelUI c s =
     '\DEL' -> case prev s of
                 Nothing -> Right Nothing
                 Just s1 -> Left s1
-    '\n'   -> Right (Just (take 5 (reverse (model s) ++ [Full (cur s)])))
+    '\n'   -> Right (Just (take 5 (reverse (model s) ++ [cur s])))
     _ | len s == 5 -> Left s
 
     ' ' -> Left
            case model s of
+             [] -> s { cur = Empty, prev = Just s }
              Full _ : _ -> s { model = Empty : model s
                              , len = len s + 1
                              , prev = Just s }
              _ -> s
 
-    ',' -> Left s { model = Full (cur s) : model s, len = len s + 1
-                  , prev = Just s }
+    ',' -> case (model s, cur s) of
+             ([], Empty) -> Left s
+             _ -> Left s { model = cur s : model s, len = len s + 1
+                         , prev = Just s }
 
-    _ | Just col <- isColor c -> Left s { cur = (cur s) { color = col }
+    _ | Just col <- isColor c -> Left s { cur = Full (doGetCur { color = col })
                                         , prev = Just s }
-      | Just sh  <- isShape c -> Left s { cur = (cur s) { shape = sh  }
+      | Just sh  <- isShape c -> Left s { cur = Full (doGetCur { shape = sh })
                                         , prev = Just s }
       | otherwise -> Left s
+
+  where
+  doGetCur = case cur s of
+               Empty -> Object { color = Red, shape = Circle }
+               Full o -> o
 
 isColor :: Char -> Maybe Color
 isColor c =
