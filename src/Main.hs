@@ -1,7 +1,7 @@
 module Main(main) where
 
 import Data.List(groupBy,intercalate)
-import Control.Monad(unless,forM_)
+import Control.Monad(unless,when,forM_)
 import Control.Monad.IO.Class(liftIO)
 import Control.Exception(finally)
 import qualified SimpleSMT as SMT
@@ -148,8 +148,9 @@ printObject (Object c s) =
 
 printState :: State -> IO ()
 printState s =
-  do clearScreen
-     setCursorPosition 0 0
+  do when (clear s)
+      do clearScreen
+         setCursorPosition 0 0
 
      unless (null (message s)) (putStrLn (message s))
 
@@ -505,6 +506,7 @@ data State = State
   , message     :: String
   , points      :: Int
   , status      :: Status
+  , clear       :: Bool
   }
 
 blankState :: SMT.Solver -> Rule -> State
@@ -517,6 +519,7 @@ blankState s r = State
   , message     = ""
   , points      = 0
   , status      = Ready
+  , clear       = True
   }
 
 -- Remove adjacnet empty spaces, and also empty spaces at the beginning
@@ -602,8 +605,11 @@ doMain opts =
              do rng <- newTFGen
                 pure (fst (rand rng))
     s0 <- tryAddNegExample =<< tryAddPosExample (blankState s r)
+    let s1 = s0 { points = optGuesses opts
+                , clear = not (optVerboseSMT opts)
+                }
     buttonMode
-    runInputT defaultSettings (play s0)
+    runInputT defaultSettings (play s1)
     typingMode
 
 buttonMode :: IO ()
