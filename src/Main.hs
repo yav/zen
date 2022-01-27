@@ -15,6 +15,7 @@ import qualified System.Console.ANSI as ANSI
 
 import Zen
 import ModelUI
+import Options
 import Parser
 
 class ToSMT a where
@@ -585,11 +586,19 @@ checkGuess r s
 
 main :: IO ()
 main =
- do l <- SMT.newLogger 5
+ do opts <- getArgs
+    if optShowHelp opts then showHelp else doMain opts
+
+doMain :: Options -> IO ()
+doMain opts =
+ do l <- SMT.newLogger (if optVerboseSMT opts then 0 else 5)
     s <- SMT.newSolver "z3" ["-smt2", "-in"] (Just l)
     SMT.loadFile s "src/Zen.z3"
-    rng <- newTFGen
-    let (r,_) = rand rng
+    r <- case optUseRule opts of
+           Just r -> pure r
+           Nothing ->
+             do rng <- newTFGen
+                pure (fst (rand rng))
     s0 <- tryAddNegExample =<< tryAddPosExample (blankState s r)
     buttonMode
     runInputT defaultSettings (play s0)
@@ -646,3 +655,6 @@ play s0 =
                            Left err -> pure s { message = err }
                            Right r -> liftIO (checkGuess r s)
                 _ -> pure s
+
+
+

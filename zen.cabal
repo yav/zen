@@ -14,6 +14,7 @@ executable zen
     other-modules:
       Zen
       ModelUI
+      Options
       Parser
     build-depends:
       base ^>=4.14.3.0,
@@ -22,6 +23,7 @@ executable zen
       tf-random,
       haskeline,
       ansi-terminal,
+      simple-get-opt,
       array
     build-tool-depends: happy:happy
     ghc-options: -Wall
