@@ -180,6 +180,8 @@
 
     (checkThing2 p q c place_3 place_4)
     (checkThing2 p q c place_3 place_5)
+
+    (checkThing2 p q c place_4 place_5)
 ))
 
 
