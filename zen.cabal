@@ -17,7 +17,7 @@ executable zen
       Options
       Parser
     build-depends:
-      base ^>=4.14.3.0,
+      base >=4.14.3.0 && <4.17,
       containers,
       simple-smt,
       tf-random,
