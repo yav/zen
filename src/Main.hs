@@ -121,12 +121,12 @@ getThing x =
 
 
 printModel :: Model -> IO ()
-printModel = mapM_ printThing
+printModel = mapM_ (\x -> putStr " " >> printThing x)
 
 printThing :: Thing -> IO ()
 printThing t =
   case t of
-    Empty  -> putStr "⏠ "
+    Empty  -> putStr "⏠"
     Full o -> printObject o
 
 printObject :: Object -> IO ()
@@ -141,9 +141,9 @@ printObject (Object c s) =
           Blue  -> ANSI.Blue
 
   sym = case s of
-          Circle   -> "● "
-          Triangle -> "▲ "
-          Square   -> "■ "
+          Circle   -> "●"
+          Triangle -> "▲"
+          Square   -> "■"
 
 
 printState :: State -> IO ()
@@ -338,9 +338,9 @@ instance PP Rule where
                ExistBefore {}   -> "no " ++ pp pr
                Compare op t1 t2 -> pp t1 ++ ops ++ pp t2
                  where ops = case op of
-                               Eq  ->  "/= "
-                               Lt  ->  ">= "
-                               Leq ->  "> "
+                               Eq  ->  " /= "
+                               Lt  ->  " >= "
+                               Leq ->  " > "
 
 
 --------------------------------------------------------------------------------
