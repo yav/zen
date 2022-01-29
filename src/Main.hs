@@ -156,13 +156,21 @@ printState s =
 
      let heading x = putStrLn (bold x)
      heading ("Guess points: " ++ show (points s))
+
+     let modelGrid ms = case ms of
+                          [] -> pure ()
+                          _  -> do let (as,bs) = splitAt 5 ms
+                                   forM_ as \m ->
+                                      do printModel m >> putStr "   "
+                                   putStrLn ""
+                                   modelGrid bs
      unless (null (posExamples s))
        do heading "Valid:"
-          forM_ (posExamples s) \m -> printModel m >> putStrLn ""
+          modelGrid (posExamples s)
 
      unless (null (negExamples s))
        do heading "Invalid:"
-          forM_ (negExamples s) \m -> printModel m >> putStrLn ""
+          modelGrid (negExamples s)
 
      unless (null (badGuesses s))
         do heading "Guesses:"
