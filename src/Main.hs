@@ -172,7 +172,7 @@ printState s =
                           Yes -> "accepts "
                           No  -> "rejects ")
                 printModel m
-                putStrLn ")"
+                putStrLn " )"
 
      let key x = "[" ++ bold x ++ "]"
 
@@ -195,7 +195,7 @@ printState s =
                      No  -> "Invalid: "
             printModel (reverse (model uis))
             unless (len uis == 5)
-               do putStr "["
+               do putStr " ["
                   printThing (cur uis)
                   putStr "]"
                   printModel (replicate (5 - 1 - len uis) Empty)
