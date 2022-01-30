@@ -10,14 +10,14 @@ data ObjectProps color shape = Object { color :: color, shape :: shape }
   deriving (Show, Eq, Ord)
 
 data Polarity = Yes | No
-  deriving (Eq,Show)
+  deriving (Eq,Show,Read)
 
 data Constraint a = Is Polarity a
                   | Unconstrained
   deriving Show
 
 data Constraint2 a = Same | Different | Unspecified
-  deriving Show
+  deriving (Read,Show)
 
 
 type Object   = ObjectProps Color Shape
@@ -25,7 +25,7 @@ type Prop     = ObjectProps (Constraint Color) (Constraint Shape)
 type Prop2    = ObjectProps (Constraint2 Color) (Constraint2 Shape)
 
 data Op      = Eq | Lt | Leq
-  deriving Show
+  deriving (Read, Show)
 
 data PosRule =
     Exist Prop

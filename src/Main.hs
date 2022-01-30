@@ -1,7 +1,9 @@
-module Main(main) where
+module Main where
 
-import Data.List(groupBy,intercalate)
-import Control.Monad(unless,when,forM_)
+import qualified Data.Map as Map
+import Data.List(groupBy,intercalate,foldl')
+import Text.Read(readMaybe)
+import Control.Monad(unless,when,forM_,msum)
 import Control.Monad.IO.Class(liftIO)
 import Control.Exception(finally)
 import qualified SimpleSMT as SMT
@@ -21,18 +23,60 @@ import Parser
 
 class ToSMT a where
   toSMT :: a -> SExpr
+  fromSMT :: SMT.Value -> Maybe a
+
+fromSExpr :: ToSMT a => SMT.SExpr -> Maybe a
+fromSExpr = fromSMT . SMT.Other
+
+fromSMTRead :: Read a => SMT.Value -> Maybe a
+fromSMTRead v =
+  case v of
+    SMT.Other (SMT.Atom r) -> readMaybe r
+    _ -> Nothing
+
+fromSMTCon :: String -> SMT.Value -> Maybe [SMT.SExpr]
+fromSMTCon x v =
+  case v of
+    SMT.Other (SMT.List (SMT.Atom c:cs)) | x == c -> Just cs
+    _ -> Nothing
+
+
+fromSMTCon0 :: String -> a -> SMT.Value -> Maybe a
+fromSMTCon0 x a v =
+  case v of
+    SMT.Other (SMT.Atom y) | x == y -> pure a
+    _ -> Nothing
+
+fromSMTCon1 :: ToSMT a => String -> (a -> b) -> SMT.Value -> Maybe b
+fromSMTCon1 con f v =
+  do [x] <- fromSMTCon con v
+     f <$> fromSExpr x
+
+fromSMTCon2 :: (ToSMT a, ToSMT b) =>
+  String -> (a -> b -> c) -> SMT.Value -> Maybe c
+fromSMTCon2 con f v =
+  do [x,y] <- fromSMTCon con v
+     f <$> fromSExpr x <*> fromSExpr y
+
+fromSMTCon3 :: (ToSMT a, ToSMT b, ToSMT c) =>
+  String -> (a -> b -> c -> d) -> SMT.Value -> Maybe d
+fromSMTCon3 con f v =
+  do [x,y,z] <- fromSMTCon con v
+     f <$> fromSExpr x <*> fromSExpr y <*> fromSExpr z
 
 class ToSMT a => TypeName a where
   typeName :: f a -> SExpr
 
 instance ToSMT Color where
   toSMT = SMT.const . show
+  fromSMT = fromSMTRead
 
 instance TypeName Color where
   typeName _ = SMT.const "Color"
 
 instance ToSMT Shape where
   toSMT = SMT.const . show
+  fromSMT = fromSMTRead
 
 instance TypeName Shape where
   typeName _ = SMT.const "Shape"
@@ -40,12 +84,11 @@ instance TypeName Shape where
 
 instance (ToSMT a, ToSMT b) => ToSMT (ObjectProps a b) where
   toSMT o = SMT.fun "Object" [ toSMT (color o), toSMT (shape o) ]
+  fromSMT = fromSMTCon2 "Object" Object
 
 instance ToSMT Polarity where
-  toSMT p =
-    case p of
-      Yes -> SMT.const "Yes"
-      No  -> SMT.const "No"
+  toSMT = SMT.const . show
+  fromSMT = fromSMTRead
 
 instance (TypeName a) => ToSMT (Constraint a) where
   toSMT c =
@@ -54,67 +97,103 @@ instance (TypeName a) => ToSMT (Constraint a) where
       Unconstrained -> SMT.fun "as" [ SMT.const "Unconstrained"
                                     , SMT.fun "Constraint" [typeName c ] ]
 
+  fromSMT v =
+    msum
+      [ fromSMTCon2 "Is" Is v
+      , do [SMT.Atom "Unconstrained",_] <- fromSMTCon "as" v
+           pure Unconstrained
+      ]
+
 
 instance ToSMT (Constraint2 a) where
-  toSMT c =
-    case c of
-      Same        -> SMT.const "Same"
-      Different   -> SMT.const "Different"
-      Unspecified -> SMT.const "Unspecified"
+  toSMT = SMT.const . show
+  fromSMT = fromSMTRead
+
+instance ToSMT Op where
+  toSMT = SMT.const . show
+  fromSMT = fromSMTRead
+
+instance ToSMT Int where
+  toSMT = SMT.int . toInteger
+  fromSMT v =
+    case v of
+      SMT.Int i -> Just (fromIntegral i) -- assuming fits in Int
+      SMT.Other (SMT.Atom x) -> readMaybe x
+      SMT.Other (SMT.List [SMT.Atom "-", SMT.Atom x]) -> negate <$> readMaybe x
+      _         -> Nothing
 
 instance ToSMT Term where
   toSMT t =
     case t of
-      Const n -> SMT.int (toInteger n)
-      Count p -> SMT.fun "count" [ toSMT p ]
+      Const n -> SMT.fun "Const" [ SMT.int (toInteger n) ]
+      Count p -> SMT.fun "Count" [ toSMT p ]
+
+  fromSMT v =
+    msum
+      [ fromSMTCon1 "Const" Const v
+      , fromSMTCon1 "Count" Count v
+      ]
 
 instance ToSMT PosRule where
   toSMT pr =
     case pr of
-      Exist p             -> SMT.fun "existsOne" [ toSMT p ]
+      Exist p ->
+        SMT.fun "Exist" [ toSMT p ]
       ExistAdjacent p q c ->
-        SMT.fun "existsAdjacent" [ toSMT p, toSMT q, toSMT c ]
+        SMT.fun "ExistAdjacent" [ toSMT p, toSMT q, toSMT c ]
       ExistBefore p q c   ->
-        SMT.fun "existsBefore" [ toSMT p, toSMT q, toSMT c ]
-      Compare op t1 t2    -> doOp op (toSMT t1) (toSMT t2)
+        SMT.fun "ExistBefore" [ toSMT p, toSMT q, toSMT c ]
+      Compare op t1 t2    ->
+        SMT.fun "Compare" [ toSMT op, toSMT t1, toSMT t2 ]
 
-doOp :: Op -> SExpr -> SExpr -> SExpr
-doOp op =
-  case op of
-    Lt  -> SMT.lt
-    Leq -> SMT.leq
-    Eq  -> SMT.eq
+  fromSMT v =
+    msum
+      [ fromSMTCon1 "Exist" Exist v
+      , fromSMTCon3 "ExistAdjacent" ExistAdjacent v
+      , fromSMTCon3 "ExistBefore" ExistBefore v
+      , fromSMTCon3 "Compare" Compare v
+      ]
 
 instance ToSMT Rule where
-  toSMT (Rule p pr) =
-    case p of
-      Yes -> toSMT pr
-      No  -> SMT.not (toSMT pr)
+  toSMT (Rule p pr) = SMT.fun "Rule" [ toSMT p, toSMT pr ]
+  fromSMT v =
+    case v of
+      SMT.Other e -> fromSMTCon2 "Rule" Rule (SMT.Other (expandLet e))
+      _ -> Nothing
 
 instance ToSMT Thing where
   toSMT t =
     case t of
       Empty  -> SMT.const "Empty"
       Full x -> SMT.fun "Full" [ toSMT x ]
+  fromSMT v =
+    msum [ fromSMTCon0 "Empty" Empty v
+         , fromSMTCon1 "Full" Full v
+         ]
 
+modelToSMT :: Model -> SMT.SExpr
+modelToSMT ms = SMT.fun "Model" [ toSMT x | x <- ms ]
 
-getObject :: SExpr -> Object
-getObject x =
-  case x of
-    SMT.List [ SMT.Atom "Object", SMT.Atom c, SMT.Atom s ] ->
-      Object (read c) (read s)
-    _ -> error "Invalid object"
+modelFromSMT :: SMT.Value -> Maybe Model
+modelFromSMT v =
+  do as <- fromSMTCon "Model" v
+     mapM fromSExpr as
 
-getThing :: SMT.Value -> Thing
-getThing x =
-  case x of
-    SMT.Other e ->
-      case e of
-        SMT.Atom "Empty" -> Empty
-        SMT.List [ SMT.Atom "Full", y ] -> Full (getObject y)
-        _ -> error "Invalid thing"
-    _ -> error "Invalid thing"
+expandLet :: SMT.SExpr -> SMT.SExpr
+expandLet = go Map.empty
+  where
+  go env e =
+    case e of
+      SMT.Atom x -> Map.findWithDefault e x env
+      SMT.List [ SMT.Atom "let", SMT.List defs, e1 ]
+        | Just ds <- mapM isDef defs ->
+          go (foldl' (\m (x,v) -> Map.insert x v m) env ds) e1
+      SMT.List xs -> SMT.List (map (go env) xs)
 
+    where isDef d =
+             case d of
+               SMT.List [ SMT.Atom x, v ] -> Just (x,go env v)
+               _                          -> Nothing
 
 --------------------------------------------------------------------------------
 -- Models
@@ -191,6 +270,7 @@ printState s =
             putStrLn $ key "i" ++ " enter invalid model"
             unless (points s < 1) (putStrLn $ key "g" ++ " guess rule")
             putStrLn $ key "h" ++ " print rule grammar"
+            putStrLn $ key "s" ++ " suggest a rule"
             putStrLn $ key "q" ++ " quit and show rule"
 
        Solved ->
@@ -438,27 +518,28 @@ instance Rand Rule where
 
 
 --------------------------------------------------------------------------------
+-- Solver interactoins
 
-
--- Assumes the rule is validated
 assertRule :: SMT.Solver -> Rule -> IO ()
-assertRule s r = SMT.assert s (toSMT r)
+assertRule s r =
+  SMT.assert s (SMT.fun "checkRule" [ SMT.const "theModel", toSMT r ])
 
-assertPol :: SMT.Solver -> Polarity -> SExpr -> IO ()
-assertPol s p e = SMT.assert s
-                  case p of
-                    Yes -> e
-                    No  -> SMT.not e
+assertModel :: SMT.Solver -> Model -> IO ()
+assertModel s m =
+  SMT.assert s (SMT.eq (SMT.const "theModel") (modelToSMT m))
 
-assertModel :: SMT.Solver -> Polarity -> Model -> IO ()
-assertModel s p m = assertPol s p modelE
+assertRuleModel :: SMT.Solver -> Polarity -> Model -> IO ()
+assertRuleModel s p m = SMT.assert s (SMT.fun "semPol" [ toSMT p, sm ])
   where
-  modelE     = SMT.andMany [ thingE i x | (i,x) <- zip [ 1 .. ] m ]
-  thingE i x = SMT.eq (SMT.const ("place_" ++ show (i::Int))) (toSMT x)
+  sm = SMT.fun "checkRule" [  modelToSMT m, SMT.const "theRule" ]
+
 
 getModel :: SMT.Solver -> IO Model
-getModel s = imp <$> SMT.getConsts s [ "place_" ++ show i | i <- [ 1..5 :: Int]]
-  where imp = normalizeModel . map (getThing . snd)
+getModel s =
+  do x <- SMT.getConst s "theModel"
+     case modelFromSMT x of
+       Just m -> pure m
+       Nothing -> error "Invalid model"
 
 -- | Check and get model if any
 getModelMaybe :: SMT.Solver -> IO (Maybe Model)
@@ -474,7 +555,7 @@ getModelMaybe s =
 checkModel :: SMT.Solver -> Model -> IO Bool
 checkModel s m =
   SMT.inNewScope s
-  do assertModel s Yes m
+  do assertModel s m
      res <- SMT.check s
      pure case res of
             SMT.Unsat   -> False
@@ -503,6 +584,24 @@ checkRules s r1 r2 =
         do assertRule s a
            assertRule s b
            getModelMaybe s
+
+
+getSuggestion :: SMT.Solver -> [Model] -> [Model] -> IO Rule
+getSuggestion s yes no =
+  SMT.inNewScope s
+  do mapM_ (assertRuleModel s Yes) yes
+     mapM_ (assertRuleModel s No) no
+     res <- SMT.check s
+     case res of
+       SMT.Sat -> do r <- SMT.getConst s "theRule"
+                     case fromSMT r of
+                       Just r1 -> pure r1
+                       Nothing -> error ("Failed to parse rule: " ++ show r)
+       SMT.Unsat -> error "Can't find rule"
+       SMT.Unknown -> error "Unknown"
+
+
+--------------------------------------------------------------------------------
 
 data Status = Solved | Ready | EnteringModel Polarity ModelUI
 
@@ -581,20 +680,21 @@ checkExperiment m expect s
      pure if yes then s1 { posExamples = m : posExamples s1 }
                  else s1 { negExamples = m : negExamples s1 }
 
-checkGuess :: Rule -> State -> IO State
-checkGuess r s
-  | points s < 1 = pure s { message = "No guess points, do some experiments." }
+checkGuess :: Bool -> Rule -> State -> IO State
+checkGuess limit r s
+  | limit && points s < 1 =
+    pure s { message = "No guess points, do some experiments." }
   | otherwise =
   do res <- checkRules (solver s) (theRule s) r
      pure case res of
             Equivalent -> s { status = Solved }
             LeftYesRightNo m -> s { badGuesses = (r,No,m) : badGuesses s
                                   , posExamples = m : posExamples s
-                                  , points = points s - 1
+                                  , points = max 0 (points s - 1)
                                   }
             LeftNoRightYes m -> s { badGuesses = (r,Yes,m) : badGuesses s
                                   , negExamples = m : negExamples s
-                                  , points = points s - 1
+                                  , points = max 0 (points s - 1)
                                   }
 
 main :: IO ()
@@ -670,7 +770,12 @@ play s0 =
                        Just l ->
                          case parseRule l of
                            Left err -> pure s { message = err }
-                           Right r -> liftIO (checkGuess r s)
+                           Right r -> liftIO (checkGuess True r s)
+                's' -> liftIO do r <- getSuggestion (solver s)
+                                                    (posExamples s)
+                                                    (negExamples s)
+                                 s1 <- checkGuess False r s
+                                 pure s1 { message = "Guessing: " ++ pp r }
                 _ -> pure s
 
 
